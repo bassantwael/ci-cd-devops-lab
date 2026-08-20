@@ -2,9 +2,10 @@ pipeline {
     agent any
 
     environment {
-        REGISTRY = '10.110.60.89:5000'
-        IMAGE_NAME = 'my-docker-hosted/ci-cd-devops-lab'
-        IMAGE = "${REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}"
+        NEXUS_REGISTRY = '10.110.60.89:5000'
+        NEXUS_REPOSITORY = 'my-docker-hosted'
+        IMAGE_NAME = 'ci-cd-devops-lab'
+        IMAGE = "${NEXUS_REGISTRY}/${NEXUS_REPOSITORY}/${IMAGE_NAME}:${BUILD_NUMBER}"
     }
 
     stages {
@@ -19,7 +20,6 @@ pipeline {
             steps {
                 sh '''
                     rm -rf .docker-test-context
-
                     mkdir -p .docker-test-context
 
                     cp requirements.txt .docker-test-context/
@@ -29,12 +29,11 @@ pipeline {
                     cp -r tests .docker-test-context/
 
                     docker build \
-                      -t ci-cd-devops-test:${BUILD_NUMBER} \
-                      -f .docker-test-context/Dockerfile.test \
-                      .docker-test-context
+                        -t ci-cd-devops-test:${BUILD_NUMBER} \
+                        -f .docker-test-context/Dockerfile.test \
+                        .docker-test-context
 
-                    docker run --rm \
-                      ci-cd-devops-test:${BUILD_NUMBER}
+                    docker run --rm ci-cd-devops-test:${BUILD_NUMBER}
                 '''
             }
         }
@@ -42,9 +41,11 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
+                    echo "Building ${IMAGE}"
+
                     docker build \
-                      -t ${IMAGE} \
-                      .
+                        -t ${IMAGE} \
+                        .
                 '''
             }
         }
@@ -59,33 +60,33 @@ pipeline {
                     )
                 ]) {
                     sh '''
-                        echo "$NEXUS_PASSWORD" | docker login ${REGISTRY} \
-                          -u "$NEXUS_USERNAME" \
-                          --password-stdin
+                        echo "${NEXUS_PASSWORD}" | docker login ${NEXUS_REGISTRY} \
+                            -u "${NEXUS_USERNAME}" \
+                            --password-stdin
 
                         docker push ${IMAGE}
+
+                        docker logout ${NEXUS_REGISTRY}
                     '''
                 }
             }
         }
 
-        stage('Deploy') {
+        stage('Deploy to Kubernetes') {
             steps {
                 sh '''
-                    echo "Deploying ${IMAGE}"
+                    echo "Deploying ${IMAGE} to Kubernetes"
 
-                    docker rm -f ci-cd-devops-app 2>/dev/null || true
+                    kubectl set image deployment/ci-cd-devops-app \
+                        ci-cd-devops-app=${IMAGE}
 
-                    docker pull ${IMAGE}
+                    kubectl rollout status deployment/ci-cd-devops-app \
+                        --timeout=120s
 
-                    docker run -d \
-                      --name ci-cd-devops-app \
-                      -p 5051:5000 \
-                      ${IMAGE}
+                    echo "Deployment successful"
 
-                    sleep 3
-
-                    docker ps --filter name=ci-cd-devops-app
+                    kubectl get deployment ci-cd-devops-app
+                    kubectl get pods -l app=ci-cd-devops-app
                 '''
             }
         }
@@ -94,11 +95,18 @@ pipeline {
     post {
         always {
             sh '''
-                rm -rf .docker-test-context
-
-                docker image rm ${IMAGE} 2>/dev/null || true
-                docker image rm ci-cd-devops-test:${BUILD_NUMBER} 2>/dev/null || true
+                rm -rf .docker-test-context || true
+                docker image rm ${IMAGE} || true
+                docker image rm ci-cd-devops-test:${BUILD_NUMBER} || true
             '''
+        }
+
+        success {
+            echo 'CI/CD pipeline completed successfully!'
+        }
+
+        failure {
+            echo 'CI/CD pipeline failed.'
         }
     }
 }
