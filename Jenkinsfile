@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        NEXUS_REGISTRY = '172.17.0.1:5000'
+        NEXUS_REGISTRY = '10.110.60.89:5000'
         IMAGE_NAME = 'my-docker-hosted/ci-cd-devops-lab'
     }
 
@@ -52,20 +52,19 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'nexus-docker',
+                        credentialsId: 'nexus-credentials',
                         usernameVariable: 'NEXUS_USERNAME',
                         passwordVariable: 'NEXUS_PASSWORD'
                     )
                 ]) {
                     sh '''
-                        echo "$NEXUS_PASSWORD" | docker login ${NEXUS_REGISTRY} \
+                        echo "$NEXUS_PASSWORD" | docker login \
+                          ${NEXUS_REGISTRY} \
                           -u "$NEXUS_USERNAME" \
                           --password-stdin
 
                         docker push \
                           ${NEXUS_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}
-
-                        docker logout ${NEXUS_REGISTRY}
                     '''
                 }
             }
@@ -76,7 +75,6 @@ pipeline {
         always {
             sh '''
                 rm -rf .docker-test-context
-
                 docker image rm \
                   ${NEXUS_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} \
                   2>/dev/null || true
