@@ -12,13 +12,31 @@ pipeline {
         stage('Test') {
             steps {
                 sh '''
+                    rm -rf .docker-test-context
+
+                    mkdir -p .docker-test-context
+
+                    cp requirements.txt .docker-test-context/
+                    cp pytest.ini .docker-test-context/
+                    cp Dockerfile.test .docker-test-context/
+                    cp -r app .docker-test-context/
+                    cp -r tests .docker-test-context/
+
+                    docker build \
+                      -t ci-cd-devops-test:${BUILD_NUMBER} \
+                      -f .docker-test-context/Dockerfile.test \
+                      .docker-test-context
+
                     docker run --rm \
-                      -v "$PWD":/workspace \
-                      -w /workspace \
-                      python:3.10-slim \
-                      bash -c "pip install --no-cache-dir -r requirements.txt && pytest -v"
+                      ci-cd-devops-test:${BUILD_NUMBER}
                 '''
             }
+        }
+    }
+
+    post {
+        always {
+            sh 'rm -rf .docker-test-context'
         }
     }
 }
