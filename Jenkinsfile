@@ -2,8 +2,9 @@ pipeline {
     agent any
 
     environment {
-        NEXUS_REGISTRY = '10.110.60.89:5000'
+        REGISTRY = '10.110.60.89:5000'
         IMAGE_NAME = 'my-docker-hosted/ci-cd-devops-lab'
+        IMAGE = "${REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}"
     }
 
     stages {
@@ -42,7 +43,7 @@ pipeline {
             steps {
                 sh '''
                     docker build \
-                      -t ${NEXUS_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} \
+                      -t ${IMAGE} \
                       .
                 '''
             }
@@ -58,15 +59,34 @@ pipeline {
                     )
                 ]) {
                     sh '''
-                        echo "$NEXUS_PASSWORD" | docker login \
-                          ${NEXUS_REGISTRY} \
+                        echo "$NEXUS_PASSWORD" | docker login ${REGISTRY} \
                           -u "$NEXUS_USERNAME" \
                           --password-stdin
 
-                        docker push \
-                          ${NEXUS_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}
+                        docker push ${IMAGE}
                     '''
                 }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                sh '''
+                    echo "Deploying ${IMAGE}"
+
+                    docker rm -f ci-cd-devops-app 2>/dev/null || true
+
+                    docker pull ${IMAGE}
+
+                    docker run -d \
+                      --name ci-cd-devops-app \
+                      -p 5051:5000 \
+                      ${IMAGE}
+
+                    sleep 3
+
+                    docker ps --filter name=ci-cd-devops-app
+                '''
             }
         }
     }
@@ -75,13 +95,9 @@ pipeline {
         always {
             sh '''
                 rm -rf .docker-test-context
-                docker image rm \
-                  ${NEXUS_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} \
-                  2>/dev/null || true
 
-                docker image rm \
-                  ci-cd-devops-test:${BUILD_NUMBER} \
-                  2>/dev/null || true
+                docker image rm ${IMAGE} 2>/dev/null || true
+                docker image rm ci-cd-devops-test:${BUILD_NUMBER} 2>/dev/null || true
             '''
         }
     }
